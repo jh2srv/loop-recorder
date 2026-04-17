@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- ADD these 5 lines right after <meta name="viewport" ...> -->
+<meta name="theme-color"                  content="#07071a">
+<meta name="mobile-web-app-capable"       content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title"   content="LoopRec">
+<link rel="manifest" href="manifest.json">
+
+<title>🔄 Loop Recorder — MP3 / WAV</title>
+<script src="lame.min.js"></script>
+<style>
+/* ── Reset ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+body{
+  min-height:100vh;background:#07071a;color:#e2e8f0;
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  display:flex;justify-content:center;padding:28px 16px 60px;
+}
+
+.app{width:min(740px,100%);display:flex;flex-direction:column;gap:18px}
+
+/* ── Header ── */
+.app-hdr{text-align:center;padding:6px 0 12px}
+.app-hdr h1{
+  font-size:2rem;font-weight:800;letter-spacing:-.5px;
+  background:linear-gradient(135deg,#a78bfa 0%,#818cf8 45%,#60a5fa 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.app-hdr p{margin-top:7px;font-size:.8rem;color:#475569;letter-spacing:.3px}
+
+/* ── Cards ── */
+.card{
+  background:#0d0d22;border:1px solid #1c1c3a;
+  border-radius:22px;padding:24px 24px 28px;position:relative;
+}
+
+/* ── Section titles ── */
+.sec{
+  font-size:.7rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:1.8px;color:#475569;
+  margin-bottom:14px;display:flex;align-items:center;gap:10px;
+}
+.sec::after{content:'';flex:1;height:1px;background:#1c1c3a}
+
+/* ── Canvases ── */
+#waveCanvas{
+  width:100%;height:80px;border-radius:12px;
+  background:#07071a;display:block;margin-bottom:22px;
+}
+#tlCanvas{width:100%;height:56px;display:block;border-radius:12px}
+.tl-labels{
+  display:flex;justify-content:space-between;padding:6px 2px 0;
+  font-size:.67rem;color:#1e2d40;font-variant-numeric:tabular-nums;
+  user-select:none;
+}
+
+/* ── Stats ── */
+.stats{
+  display:grid;grid-template-columns:1fr 1fr auto;
+  gap:12px;margin:20px 0 18px;align-items:center;
+}
+.stat-box{
+  background:#07071a;border:1px solid #1c1c3a;
+  border-radius:14px;padding:13px 16px;
+}
+.stat-lbl{font-size:.67rem;text-transform:uppercase;letter-spacing:1.2px;color:#475569;margin-bottom:5px}
+.stat-val{font-size:1.35rem;font-weight:700;font-variant-numeric:tabular-nums;color:#a78bfa}
+.stat-val.dim{color:#2d3a4a}
+.loop-badge{
+  background:linear-gradient(135deg,#d97706,#92400e);border-radius:50px;
+  padding:10px 16px;font-size:.72rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:1px;color:#fff;display:none;text-align:center;white-space:nowrap;
+  animation:badgePulse 2s ease-in-out infinite;
+}
+.loop-badge.on{display:block}
+@keyframes badgePulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+/* ── Status ── */
+.status-row{
+  display:flex;align-items:center;justify-content:center;
+  gap:9px;margin-bottom:20px;font-size:.77rem;font-weight:600;
+  text-transform:uppercase;letter-spacing:1.2px;color:#475569;
+}
+.dot{width:9px;height:9px;border-radius:50%;background:#2d3a4a;flex-shrink:0}
+.dot.rec{background:#ef4444;animation:blink 1s infinite}
+.dot.ok{background:#22c55e}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.2;transform:scale(1.6)}}
+
+/* ── Main buttons ── */
+.controls{display:flex;gap:12px;justify-content:center}
+.btn{
+  border:none;border-radius:50px;padding:13px 30px;
+  font-size:.88rem;font-weight:700;cursor:pointer;
+  display:inline-flex;align-items:center;gap:8px;
+  transition:transform .15s,box-shadow .15s,opacity .2s;
+}
+.btn:disabled{opacity:.27;cursor:not-allowed;transform:none!important}
+.btn:not(:disabled):hover{transform:translateY(-2px)}
+.btn:not(:disabled):active{transform:scale(.97)}
+.btn-start{
+  background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;
+  box-shadow:0 6px 22px rgba(124,58,237,.4);
+}
+.btn-start:not(:disabled):hover{box-shadow:0 8px 30px rgba(124,58,237,.65)}
+.btn-stop{
+  background:linear-gradient(135deg,#dc2626,#9b1c1c);color:#fff;
+  box-shadow:0 5px 18px rgba(220,38,38,.3);
+}
+
+/* ── Save card header ── */
+.save-hdr{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.save-hdr .sec{margin-bottom:0;flex:1}
+.avail-pill{
+  background:#07071a;border:1px solid #1c1c3a;border-radius:50px;
+  padding:5px 14px;font-size:.72rem;color:#475569;
+  white-space:nowrap;font-variant-numeric:tabular-nums;
+}
+.avail-pill strong{color:#a78bfa;font-weight:700}
+
+/* ── Format / Quality ── */
+.fmt-row{
+  display:flex;align-items:center;gap:14px;
+  margin-bottom:14px;flex-wrap:wrap;
+}
+.fmt-label{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:#475569;flex-shrink:0}
+
+.fmt-tabs{
+  display:flex;background:#07071a;border:1px solid #1c1c3a;
+  border-radius:12px;overflow:hidden;flex-shrink:0;
+}
+.fmt-tab{
+  padding:9px 22px;font-size:.83rem;font-weight:700;border:none;
+  background:none;color:#475569;cursor:pointer;transition:all .2s;
+}
+.fmt-tab.active{
+  background:linear-gradient(135deg,#7c3aed,#4f46e5);
+  color:#fff;border-radius:10px;
+}
+.fmt-tab:disabled{opacity:.35;cursor:not-allowed}
+
+.quality-group{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.q-label{font-size:.7rem;color:#475569;text-transform:uppercase;letter-spacing:.8px}
+.q-btn{
+  background:#07071a;border:1px solid #1c1c3a;border-radius:8px;
+  padding:7px 14px;font-size:.78rem;font-weight:600;
+  color:#475569;cursor:pointer;transition:all .2s;
+}
+.q-btn.active{
+  background:linear-gradient(135deg,#0891b2,#0e7490);
+  border-color:transparent;color:#fff;
+}
+.q-btn:hover:not(.active){border-color:#7c3aed;color:#a78bfa}
+
+/* ── Size estimate ── */
+.size-row{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.size-pill{
+  background:#07071a;border:1px solid #1c1c3a;border-radius:50px;
+  padding:5px 14px;font-size:.75rem;color:#64748b;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.size-pill strong{color:#a78bfa}
+.size-warn{
+  font-size:.73rem;color:#f59e0b;
+  display:none;align-items:center;gap:5px;
+}
+.size-warn.on{display:flex}
+
+/* ── Presets ── */
+.presets{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+.preset{
+  flex:1 1 80px;background:#07071a;border:1px solid #1c1c3a;
+  color:#64748b;border-radius:12px;padding:12px 10px;
+  font-size:.8rem;font-weight:600;cursor:pointer;text-align:center;
+  transition:all .2s;
+}
+.preset:not(:disabled):hover{
+  background:#7c3aed;border-color:#7c3aed;color:#fff;
+  transform:translateY(-2px);box-shadow:0 5px 18px rgba(124,58,237,.4);
+}
+.preset:disabled{opacity:.27;cursor:not-allowed}
+.preset.flash{
+  background:linear-gradient(135deg,#059669,#047857)!important;
+  border-color:#059669!important;color:#fff!important;transition:none;
+}
+
+/* ── Custom duration ── */
+.custom-row{display:flex;gap:10px}
+.inp-wrap{position:relative;flex:1}
+.inp-wrap input{
+  width:100%;background:#07071a;border:1px solid #1c1c3a;
+  border-radius:12px;padding:12px 48px 12px 16px;
+  color:#e2e8f0;font-size:.875rem;outline:none;
+  transition:border-color .2s;-moz-appearance:textfield;
+}
+.inp-wrap input::-webkit-inner-spin-button,
+.inp-wrap input::-webkit-outer-spin-button{-webkit-appearance:none}
+.inp-wrap input:focus{border-color:#7c3aed}
+.inp-wrap input::placeholder{color:#1e2d40}
+.inp-wrap .unit{
+  position:absolute;right:14px;top:50%;transform:translateY(-50%);
+  font-size:.75rem;color:#475569;pointer-events:none;
+}
+.btn-save-custom{
+  background:linear-gradient(135deg,#059669,#047857);color:#fff;
+  border:none;border-radius:12px;padding:12px 20px;
+  font-size:.85rem;font-weight:700;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;
+  white-space:nowrap;transition:all .2s;
+}
+.btn-save-custom:not(:disabled):hover{
+  transform:translateY(-1px);box-shadow:0 5px 18px rgba(5,150,105,.4);
+}
+.btn-save-custom:disabled{opacity:.27;cursor:not-allowed}
+
+/* ── Error box ── */
+.err-box{
+  display:none;background:rgba(239,68,68,.1);
+  border:1px solid rgba(239,68,68,.3);border-radius:10px;
+  padding:10px 14px;font-size:.79rem;color:#fca5a5;margin-top:14px;
+}
+
+/* ── Encoding modal (overlays save card) ── */
+.enc-modal{
+  display:none;position:absolute;inset:0;z-index:20;
+  background:rgba(7,7,26,.93);border-radius:22px;
+  flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;padding:36px;backdrop-filter:blur(6px);
+}
+.enc-modal.on{display:flex}
+
+.enc-ring{
+  position:relative;width:68px;height:68px;flex-shrink:0;
+}
+.enc-ring svg{transform:rotate(-90deg)}
+.enc-ring circle{fill:none;stroke-width:5;stroke-linecap:round}
+.enc-track{stroke:#1c1c3a}
+.enc-arc{
+  stroke:url(#arcGrad);
+  stroke-dasharray:188.5;
+  stroke-dashoffset:188.5;
+  transition:stroke-dashoffset .18s ease;
+}
+.enc-icon{
+  position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;font-size:1.4rem;
+}
+.enc-spinner-inner{
+  width:68px;height:68px;border:5px solid #1c1c3a;
+  border-top-color:#a78bfa;border-radius:50%;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.enc-step{
+  font-size:.72rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:1.5px;color:#475569;
+}
+.enc-label{font-size:1.05rem;font-weight:700;color:#a78bfa;text-align:center}
+.enc-bar-wrap{
+  width:100%;max-width:340px;background:#1c1c3a;
+  border-radius:50px;height:8px;overflow:hidden;
+}
+.enc-bar{
+  height:100%;width:0%;
+  background:linear-gradient(90deg,#7c3aed,#a78bfa,#60a5fa);
+  border-radius:50px;transition:width .18s ease;
+}
+.enc-pct{
+  font-size:.88rem;font-weight:700;color:#64748b;
+  font-variant-numeric:tabular-nums;min-height:20px;
+}
+.enc-note{font-size:.75rem;color:#334155;text-align:center;max-width:280px}
+
+/* ── Clips card ── */
+.clips-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.clips-title{font-size:.9rem;font-weight:700;color:#64748b}
+.cnt-badge{
+  background:#4c1d95;color:#ddd6fe;border-radius:50px;
+  padding:2px 10px;font-size:.74rem;font-weight:700;margin-left:7px;
+}
+.btn-clear-all{
+  background:none;border:1px solid #1c1c3a;border-radius:8px;
+  padding:5px 12px;font-size:.72rem;color:#475569;cursor:pointer;transition:all .2s;
+}
+.btn-clear-all:hover{border-color:#ef4444;color:#ef4444}
+
+.clips-list{
+  display:flex;flex-direction:column;gap:12px;
+  max-height:460px;overflow-y:auto;padding-right:2px;
+}
+.clips-list::-webkit-scrollbar{width:4px}
+.clips-list::-webkit-scrollbar-track{background:transparent}
+.clips-list::-webkit-scrollbar-thumb{background:#1c1c3a;border-radius:4px}
+
+/* ── Clip card ── */
+.clip-card{
+  background:#07071a;border:1px solid #1c1c3a;
+  border-radius:16px;padding:16px;animation:fadeUp .3s ease;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.clip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}
+.clip-name{font-size:.85rem;font-weight:700;color:#c4b5fd;line-height:1.35}
+.clip-right{text-align:right;flex-shrink:0}
+.clip-dur{font-size:.82rem;font-weight:700;color:#a78bfa}
+.clip-meta{font-size:.69rem;color:#334155;margin-top:2px;line-height:1.6}
+.badge-fmt{
+  display:inline-block;border-radius:4px;padding:1px 7px;font-size:.65rem;
+  font-weight:800;text-transform:uppercase;letter-spacing:.5px;
+}
+.badge-mp3{background:rgba(124,58,237,.25);color:#a78bfa;border:1px solid rgba(124,58,237,.3)}
+.badge-wav{background:rgba(8,145,178,.2);color:#67e8f9;border:1px solid rgba(8,145,178,.3)}
+.clip-card audio{width:100%;height:34px;margin-bottom:10px;accent-color:#7c3aed}
+.clip-actions{display:flex;gap:8px;justify-content:flex-end}
+.act-btn{
+  border:none;border-radius:8px;padding:7px 15px;
+  font-size:.74rem;font-weight:700;cursor:pointer;transition:opacity .2s,transform .15s;
+}
+.act-btn:hover{opacity:.85;transform:translateY(-1px)}
+.act-dl{background:linear-gradient(135deg,#0891b2,#0e7490);color:#fff}
+.act-del{background:linear-gradient(135deg,#dc2626,#9b1c1c);color:#fff}
+
+/* ── Empty state ── */
+.empty-state{text-align:center;padding:36px 16px;color:#1e2d40;font-size:.85rem;line-height:1.8}
+.empty-state .ei{font-size:2.5rem;margin-bottom:10px;display:block}
+
+/* ── Responsive ── */
+@media(max-width:520px){
+  .stats{grid-template-columns:1fr 1fr}
+  .loop-badge{grid-column:1/-1}
+  .custom-row{flex-direction:column}
+  .btn-save-custom{justify-content:center}
+  .fmt-row{gap:8px}
+  .quality-group{margin-left:0;width:100%}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ── -->
+  <header class="app-hdr">
+    <h1>🔄 Loop Recorder</h1>
+    <p>Up to 1 hour rolling buffer &nbsp;·&nbsp; Export MP3 or WAV &nbsp;·&nbsp; Recording never stops</p>
+  </header>
+
+  <!-- ── Recorder ── -->
+  <div class="card">
+    <div class="sec">Live Audio</div>
+    <canvas id="waveCanvas"></canvas>
+
+    <div class="sec">Buffer Timeline — hover a preset to preview the range</div>
+    <canvas id="tlCanvas"></canvas>
+    <div class="tl-labels">
+      <span>0</span><span>15 min</span><span>30 min</span><span>45 min</span><span>1 hr</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat-box">
+        <div class="stat-lbl">Buffer filled</div>
+        <div class="stat-val dim" id="statBuf">00:00</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-lbl">Total recorded</div>
+        <div class="stat-val dim" id="statTotal">00:00:00</div>
+      </div>
+      <div class="loop-badge" id="loopBadge">🔄 Looping</div>
+    </div>
+
+    <div class="status-row">
+      <div class="dot" id="dot"></div>
+      <span id="statusTxt">Ready — press Start to begin</span>
+    </div>
+    <div class="controls">
+      <button class="btn btn-start" id="btnStart">▶ Start Recording</button>
+      <button class="btn btn-stop"  id="btnStop" disabled>⏹ Stop</button>
+    </div>
+  </div>
+
+  <!-- ── Save ── -->
+  <div class="card">
+
+    <!-- Encoding overlay -->
+    <div class="enc-modal" id="encModal">
+      <svg width="0" height="0" style="position:absolute">
+        <defs>
+          <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%"   stop-color="#7c3aed"/>
+            <stop offset="50%"  stop-color="#a78bfa"/>
+            <stop offset="100%" stop-color="#60a5fa"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div id="encRingWrap">
+        <div class="enc-spinner-inner" id="encSpinner"></div>
+      </div>
+      <div class="enc-step"  id="encStep">Step 1 of 2</div>
+      <div class="enc-label" id="encLabel">Decoding audio…</div>
+      <div class="enc-bar-wrap" id="encBarWrap" style="display:none">
+        <div class="enc-bar" id="encBar"></div>
+      </div>
+      <div class="enc-pct" id="encPct"></div>
+      <div class="enc-note">Recording continues in the background</div>
+    </div>
+
+    <div class="save-hdr">
+      <div class="sec">💾 Save Audio Clip</div>
+      <div class="avail-pill">Available: <strong id="availTxt">—</strong></div>
+    </div>
+
+    <!-- Format + Quality -->
+    <div class="fmt-row">
+      <span class="fmt-label">Format</span>
+      <div class="fmt-tabs">
+        <button class="fmt-tab active" data-fmt="mp3">🎵 MP3</button>
+        <button class="fmt-tab"       data-fmt="wav">🔊 WAV</button>
+      </div>
+      <div class="quality-group" id="qualityGroup">
+        <span class="q-label">kbps</span>
+        <button class="q-btn"        data-br="64">64</button>
+        <button class="q-btn active" data-br="128">128</button>
+        <button class="q-btn"        data-br="192">192</button>
+        <button class="q-btn"        data-br="320">320</button>
+      </div>
+    </div>
+
+    <!-- Size estimate -->
+    <div class="size-row">
+      <div class="size-pill">Est. file size: <strong id="sizeEst">—</strong></div>
+      <div class="size-warn" id="sizeWarn">⚠ Large file — use MP3 for long clips</div>
+    </div>
+
+    <!-- Presets -->
+    <div class="presets" id="presetRow">
+      <button class="preset" data-min="1"  disabled>Last 1 min</button>
+      <button class="preset" data-min="5"  disabled>Last 5 min</button>
+      <button class="preset" data-min="15" disabled>Last 15 min</button>
+      <button class="preset" data-min="30" disabled>Last 30 min</button>
+      <button class="preset" data-min="60" disabled>Last 1 hour</button>
+    </div>
+
+    <!-- Custom -->
+    <div class="custom-row">
+      <div class="inp-wrap">
+        <input type="number" id="customInp"
+               placeholder="Custom duration…" min="0.1" max="60" step="0.5" />
+        <span class="unit">min</span>
+      </div>
+      <button class="btn-save-custom" id="btnCustom" disabled>💾 Save</button>
+    </div>
+
+    <div class="err-box" id="errBox"></div>
+  </div>
+
+  <!-- ── Saved Clips ── -->
+  <div class="card">
+    <div class="clips-hdr">
+      <span class="clips-title">Saved Clips <span class="cnt-badge" id="clipCnt">0</span></span>
+      <button class="btn-clear-all" id="btnClearAll">Clear all</button>
+    </div>
+    <div class="clips-list" id="clipsList">
+      <div class="empty-state">
+        <span class="ei">🎙️</span>
+        Start recording, choose MP3 or WAV, then hit a preset.<br>
+        The recording keeps running while you export!
+      </div>
+    </div>
+  </div>
+
+</div><!-- .app -->
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════════════════
+const SLICE_MS   = 1000;      // MediaRecorder chunk interval (1 s)
+const MAX_MIN    = 60;
+const MAX_CHUNKS = MAX_MIN * 60;   // 3 600 chunks = 1 hour
+
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+let mediaRec    = null, micStream = null;
+let audioCtx    = null, analyser  = null;
+let rafLive     = null, rafIdle   = null;
+
+let buffer      = [];   // {data: Blob, ts: number}[]
+let initBlob    = null; // First chunk — holds WebM codec header
+let totalChunks = 0;
+let isRecording = false;
+let isEncoding  = false;
+
+let elapsedSec  = 0, ticker = null;
+let clips       = [], clipSeq = 0;
+let hlMin       = 0, mime = '';
+
+let selFormat   = 'mp3';
+let selBitrate  = 128;
+
+// ═══════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════
+const wCvs    = document.getElementById('waveCanvas');
+const tlCvs   = document.getElementById('tlCanvas');
+const wCtx    = wCvs.getContext('2d');
+const tCtx    = tlCvs.getContext('2d');
+const btnStart    = document.getElementById('btnStart');
+const btnStop     = document.getElementById('btnStop');
+const dotEl       = document.getElementById('dot');
+const statusEl    = document.getElementById('statusTxt');
+const loopBadge   = document.getElementById('loopBadge');
+const statBuf     = document.getElementById('statBuf');
+const statTotal   = document.getElementById('statTotal');
+const availTxt    = document.getElementById('availTxt');
+const clipsList   = document.getElementById('clipsList');
+const clipCnt     = document.getElementById('clipCnt');
+const errBox      = document.getElementById('errBox');
+const customInp   = document.getElementById('customInp');
+const btnCustom   = document.getElementById('btnCustom');
+const btnClearAll = document.getElementById('btnClearAll');
+const presets     = [...document.querySelectorAll('.preset')];
+const fmtTabs     = [...document.querySelectorAll('.fmt-tab')];
+const qBtns       = [...document.querySelectorAll('.q-btn')];
+const qualGroup   = document.getElementById('qualityGroup');
+const encModal    = document.getElementById('encModal');
+const encStep     = document.getElementById('encStep');
+const encLabel    = document.getElementById('encLabel');
+const encBar      = document.getElementById('encBar');
+const encBarWrap  = document.getElementById('encBarWrap');
+const encPct      = document.getElementById('encPct');
+const encSpinner  = document.getElementById('encSpinner');
+const sizeEst     = document.getElementById('sizeEst');
+const sizeWarn    = document.getElementById('sizeWarn');
+
+// ═══════════════════════════════════════════════════════════════
+//  CANVAS SIZING
+// ═══════════════════════════════════════════════════════════════
+function sizeCanvases() {
+  [wCvs, tlCvs].forEach(c => { c.width = c.offsetWidth; c.height = c.offsetHeight; });
+}
+sizeCanvases();
+window.addEventListener('resize', () => { sizeCanvases(); drawTimeline(hlMin); });
+
+// ═══════════════════════════════════════════════════════════════
+//  DRAW — Idle wave
+// ═══════════════════════════════════════════════════════════════
+function drawIdleWave() {
+  if (isRecording) return;
+  rafIdle = requestAnimationFrame(drawIdleWave);
+  const W = wCvs.width, H = wCvs.height, t = Date.now() / 1100;
+  wCtx.clearRect(0, 0, W, H);
+  wCtx.beginPath(); wCtx.strokeStyle = '#1e1e3a'; wCtx.lineWidth = 2;
+  for (let x = 0; x <= W; x += 2) {
+    const y = H/2
+      + Math.sin(x/W * Math.PI*5 + t) * 8
+      + Math.sin(x/W * Math.PI*9 + t*1.4) * 3;
+    x === 0 ? wCtx.moveTo(x,y) : wCtx.lineTo(x,y);
+  }
+  wCtx.stroke();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DRAW — Live frequency bars
+// ═══════════════════════════════════════════════════════════════
+function drawLiveWave() {
+  rafLive = requestAnimationFrame(drawLiveWave);
+  const W = wCvs.width, H = wCvs.height;
+  wCtx.clearRect(0, 0, W, H);
+  const bin  = analyser.frequencyBinCount;
+  const data = new Uint8Array(bin);
+  analyser.getByteFrequencyData(data);
+  const bw = (W / bin) * 2.5;
+  let x = 0;
+  for (let i = 0; i < bin; i++) {
+    const n = data[i] / 255;
+    if (n < 0.015) { x += bw; continue; }
+    const bh = n * H;
+    wCtx.fillStyle = `hsla(${258 - n*55},70%,62%,${.45 + n*.55})`;
+    wCtx.beginPath();
+    roundedBar(wCtx, x, H-bh, bw-1.5, bh, 3);
+    wCtx.fill();
+    x += bw; if (x > W) break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DRAW — Buffer timeline
+// ═══════════════════════════════════════════════════════════════
+function drawTimeline(hl = 0) {
+  const W = tlCvs.width, H = tlCvs.height;
+  tCtx.clearRect(0, 0, W, H);
+  tCtx.fillStyle = '#07071a'; rrFill(tCtx, 0, 0, W, H, 12);
+
+  const avail  = buffer.length;
+  const fillF  = Math.min(avail / MAX_CHUNKS, 1);
+  const fillW  = fillF * W;
+  const isLoop = totalChunks > MAX_CHUNKS;
+
+  if (avail === 0) {
+    tCtx.font='11px system-ui'; tCtx.fillStyle='#1e2d40';
+    tCtx.textAlign='center'; tCtx.textBaseline='middle';
+    tCtx.fillText('Start recording to fill the buffer', W/2, H/2);
+    tCtx.textAlign='start'; tCtx.textBaseline='alphabetic';
+  } else {
+    // Filled gradient
+    const g = tCtx.createLinearGradient(0,0,fillW,0);
+    g.addColorStop(0,   'rgba(79,70,229,.45)');
+    g.addColorStop(.55, 'rgba(109,40,217,.55)');
+    g.addColorStop(1,   'rgba(167,139,250,.72)');
+    tCtx.fillStyle = g; rrFill(tCtx, 0, 0, fillW, H, 12);
+
+    // Write-head / loop glow
+    if (isLoop) {
+      const p = (Math.sin(Date.now()/380)+1)/2;
+      const eg = tCtx.createLinearGradient(W-52,0,W,0);
+      eg.addColorStop(0,'rgba(245,158,11,0)');
+      eg.addColorStop(1,`rgba(245,158,11,${.28+p*.42})`);
+      tCtx.fillStyle=eg; tCtx.fillRect(W-52,0,52,H);
+      tCtx.fillStyle=`rgba(251,191,36,${.55+p*.45})`; tCtx.fillRect(W-3,0,3,H);
+    } else {
+      tCtx.fillStyle='#a78bfa'; tCtx.fillRect(Math.max(0,fillW-3),0,3,H);
+    }
+
+    // Hover highlight
+    if (hl > 0) {
+      const availMin  = (avail * SLICE_MS/1000)/60;
+      const clampMin  = Math.min(hl, availMin);
+      const hlW       = (clampMin/MAX_MIN)*W;
+      const hlX       = Math.max(0, fillW-hlW);
+      const actW      = fillW-hlX;
+      tCtx.fillStyle='rgba(251,191,36,.18)'; tCtx.fillRect(hlX,0,actW,H);
+      tCtx.strokeStyle='rgba(251,191,36,.85)'; tCtx.lineWidth=2;
+      if (hlX>2){ tCtx.beginPath(); tCtx.moveTo(hlX+1,4); tCtx.lineTo(hlX+1,H-4); tCtx.stroke(); }
+      tCtx.beginPath();
+      tCtx.moveTo(hlX,1.5); tCtx.lineTo(fillW-1,1.5);
+      tCtx.moveTo(hlX,H-1.5); tCtx.lineTo(fillW-1,H-1.5); tCtx.stroke();
+      if (actW>44) {
+        const lbl = clampMin>=60?'1 hr':clampMin<1?`${Math.round(clampMin*60)}s`:
+                    Number.isInteger(clampMin)?`${clampMin} min`:`${clampMin.toFixed(1)} min`;
+        const fs  = Math.min(11,Math.max(9,actW/6));
+        tCtx.font=`bold ${fs}px system-ui`; tCtx.fillStyle='rgba(251,191,36,.95)';
+        tCtx.textAlign='center'; tCtx.textBaseline='middle';
+        tCtx.fillText(lbl, hlX+actW/2, H/2);
+        tCtx.textAlign='start'; tCtx.textBaseline='alphabetic';
+      }
+    }
+  }
+
+  // Grid lines
+  tCtx.strokeStyle='rgba(255,255,255,.04)'; tCtx.lineWidth=1; tCtx.setLineDash([3,7]);
+  [.25,.5,.75].forEach(p=>{ tCtx.beginPath(); tCtx.moveTo(p*W,0); tCtx.lineTo(p*W,H); tCtx.stroke(); });
+  tCtx.setLineDash([]);
+  tCtx.strokeStyle='#1c1c3a'; tCtx.lineWidth=1;
+  rrStroke(tCtx,.5,.5,W-1,H-1,12);
+}
+
+setInterval(()=>{ if(isRecording && totalChunks>MAX_CHUNKS) drawTimeline(hlMin); },60);
+
+// ═══════════════════════════════════════════════════════════════
+//  RECORDING
+// ═══════════════════════════════════════════════════════════════
+async function startRec() {
+  hideErr();
+  if (!navigator.mediaDevices?.getUserMedia) { showErr('Audio recording not supported in this browser.'); return; }
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch {
+    showErr('Microphone access denied — please allow mic permissions and try again.'); return;
+  }
+
+  const candidates = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4'];
+  mime = candidates.find(t => MediaRecorder.isTypeSupported(t)) ?? '';
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaStreamSource(micStream);
+  analyser  = audioCtx.createAnalyser(); analyser.fftSize = 512;
+  src.connect(analyser);
+
+  buffer = []; initBlob = null; totalChunks = 0; elapsedSec = 0;
+  isRecording = true;
+
+  const opts = mime ? { mimeType: mime } : {};
+  mediaRec = new MediaRecorder(micStream, opts);
+  mime     = mediaRec.mimeType;
+  mediaRec.ondataavailable = onChunk;
+  mediaRec.start(SLICE_MS);
+
+  ticker = setInterval(()=>{ elapsedSec++; updateStats(); }, 1000);
+  cancelAnimationFrame(rafIdle);
+  drawLiveWave();
+  setStatus('rec','Recording  ·  rolling buffer active');
+  btnStart.disabled = true; btnStop.disabled = false;
+  loopBadge.classList.remove('on');
+  updateSaveBtns(); updateSizeEst(0);
+}
+
+function onChunk(e) {
+  if (e.data.size === 0) return;
+  if (!initBlob) initBlob = e.data;
+  buffer.push({ data: e.data, ts: Date.now() });
+  if (buffer.length > MAX_CHUNKS) buffer.shift();
+  totalChunks++;
+  if (totalChunks > MAX_CHUNKS) loopBadge.classList.add('on');
+  updateStats(); updateSaveBtns(); drawTimeline(hlMin);
+}
+
+function stopRec() {
+  if (!isRecording) return;
+  isRecording = false;
+  mediaRec.stop(); micStream.getTracks().forEach(t=>t.stop());
+  clearInterval(ticker);
+  cancelAnimationFrame(rafLive); rafLive = null;
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  const bufSec = buffer.length * SLICE_MS/1000;
+  setStatus('ok',`Stopped — ${fmtSec(bufSec)} in buffer, ready to export`);
+  btnStart.disabled = false; btnStop.disabled = true;
+  drawIdleWave(); drawTimeline(hlMin);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SAVE PIPELINE  ( WebM buffer → decode → trim → encode )
+// ═══════════════════════════════════════════════════════════════
+async function saveMin(minutes, flashBtn) {
+  if (isEncoding) return;
+  hideErr();
+  if (!initBlob || buffer.length === 0) { showErr('No audio in buffer yet — start recording first.'); return; }
+
+  isEncoding = true;
+  const need   = Math.min(Math.ceil(minutes * 60), buffer.length);
+  const sliced = buffer.slice(-need);
+  const actSec = sliced.length * SLICE_MS / 1000;
+  const capped = actSec < minutes*60 - 0.5;
+
+  const firstIsInit = sliced.length > 0 && sliced[0].data === initBlob;
+  const parts = firstIsInit
+    ? sliced.map(c=>c.data)
+    : [initBlob, ...sliced.map(c=>c.data)];
+
+  try {
+    // ── Step 1: Decode WebM → AudioBuffer ───────────────────────
+    setEncState(1, 'Decoding audio…', false);
+
+    const webmBlob  = new Blob(parts, { type: mime||'audio/webm' });
+    const arrayBuf  = await webmBlob.arrayBuffer();
+    const decCtx    = new (window.AudioContext||window.webkitAudioContext)();
+    let   audioBuf;
+    try   { audioBuf = await decCtx.decodeAudioData(arrayBuf); }
+    finally { decCtx.close(); }
+
+    // Trim off any preamble carried by initBlob
+    const targetSamples = Math.floor(actSec * audioBuf.sampleRate);
+    const startSample   = Math.max(0, audioBuf.length - targetSamples);
+    audioBuf = trimAudioBuffer(audioBuf, startSample);
+
+    // ── Step 2: Encode ───────────────────────────────────────────
+    let outBlob, ext, fmtLbl;
+
+    if (selFormat === 'wav') {
+      setEncState(2, 'Encoding WAV…', false);
+      await pause(30);
+      outBlob = encodeWAV(audioBuf);
+      ext     = 'wav';
+      fmtLbl  = 'WAV · 16-bit PCM';
+    } else {
+      if (!window.lamejs) throw new Error('MP3 encoder (lamejs) failed to load. Check your network connection.');
+      setEncState(2, 'Encoding MP3…', true);
+      outBlob = await encodeMP3(audioBuf, selBitrate);
+      ext     = 'mp3';
+      fmtLbl  = `MP3 · ${selBitrate} kbps`;
+    }
+
+    // ── Save to clips list ───────────────────────────────────────
+    const url    = URL.createObjectURL(outBlob);
+    const id     = ++clipSeq;
+    const reqLbl = fmtLabel(minutes);
+    const actLbl = fmtSec(actSec);
+    const name   = capped
+      ? `Clip ${id} — Last ${reqLbl} (${actLbl} available)`
+      : `Clip ${id} — Last ${reqLbl}`;
+
+    clips.unshift({ id, url, name, actSec, ext, fmtLbl, size: outBlob.size,
+                    savedAt: new Date().toLocaleTimeString() });
+    renderClips();
+
+    if (flashBtn) {
+      flashBtn.classList.add('flash');
+      setTimeout(()=>flashBtn.classList.remove('flash'), 950);
+    }
+  } catch (err) {
+    showErr('Export failed: ' + err.message);
+  } finally {
+    hideEnc(); isEncoding = false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AUDIO BUFFER TRIM
+// ═══════════════════════════════════════════════════════════════
+function trimAudioBuffer(buf, startSample) {
+  if (startSample <= 0) return buf;
+  const numCh  = buf.numberOfChannels;
+  const length = buf.length - startSample;
+  if (length <= 0) return buf;
+  const out = new AudioBuffer({ numberOfChannels: numCh, length, sampleRate: buf.sampleRate });
+  for (let c = 0; c < numCh; c++) {
+    out.copyToChannel(buf.getChannelData(c).subarray(startSample), c);
+  }
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  WAV ENCODER  (16-bit PCM, synchronous)
+// ═══════════════════════════════════════════════════════════════
+function encodeWAV(buf) {
+  const numCh   = Math.min(buf.numberOfChannels, 2);
+  const sr      = buf.sampleRate;
+  const n       = buf.length;
+  const dataLen = n * numCh * 2;        // 16-bit = 2 bytes/sample
+  const ab      = new ArrayBuffer(44 + dataLen);
+  const v       = new DataView(ab);
+
+  const ws = (off, s) => { for (let i=0; i<s.length; i++) v.setUint8(off+i, s.charCodeAt(i)); };
+  ws(0,'RIFF'); v.setUint32(4, 36+dataLen, true); ws(8,'WAVE');
+  ws(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
+  v.setUint16(22,numCh,true); v.setUint32(24,sr,true);
+  v.setUint32(28,sr*numCh*2,true); v.setUint16(32,numCh*2,true);
+  v.setUint16(34,16,true);
+  ws(36,'data'); v.setUint32(40,dataLen,true);
+
+  const ch = [];
+  for (let c=0; c<numCh; c++) ch.push(buf.getChannelData(c));
+  let off = 44;
+  for (let i=0; i<n; i++) {
+    for (let c=0; c<numCh; c++) {
+      const s = Math.max(-1, Math.min(1, ch[c][i]));
+      v.setInt16(off, s<0?(s*32768)|0:(s*32767)|0, true);
+      off += 2;
+    }
+  }
+  return new Blob([ab], { type:'audio/wav' });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MP3 ENCODER  (lamejs, async with progress)
+// ═══════════════════════════════════════════════════════════════
+function f32ToI16(f32) {
+  const out = new Int16Array(f32.length);
+  for (let i=0; i<f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    out[i]  = s<0?(s*32768)|0:(s*32767)|0;
+  }
+  return out;
+}
+
+function encodeMP3(audioBuf, bitrate) {
+  return new Promise((resolve, reject) => {
+    try {
+      const numCh = Math.min(audioBuf.numberOfChannels, 2);
+      const sr    = audioBuf.sampleRate;
+      const enc   = new lamejs.Mp3Encoder(numCh, sr, bitrate);
+
+      const leftI16  = f32ToI16(audioBuf.getChannelData(0));
+      const rightI16 = numCh>1 ? f32ToI16(audioBuf.getChannelData(1)) : leftI16;
+
+      const parts  = [];
+      const BLOCK  = 1152;
+      const BATCH  = 150;          // blocks per setTimeout slice
+      const total  = leftI16.length;
+      let   offset = 0;
+
+      function step() {
+        try {
+          const end = Math.min(offset + BLOCK*BATCH, total);
+          for (let i=offset; i<end; i+=BLOCK) {
+            const l = leftI16.subarray(i, i+BLOCK);
+            const r = rightI16.subarray(i, i+BLOCK);
+            const d = numCh>1 ? enc.encodeBuffer(l,r) : enc.encodeBuffer(l);
+            if (d.length>0) parts.push(new Uint8Array(d));
+          }
+          offset = end;
+          const pct = Math.round(offset/total*100);
+          encBar.style.width = pct+'%'; encPct.textContent = pct+'%';
+
+          if (offset < total) { setTimeout(step,0); }
+          else {
+            const tail = enc.flush();
+            if (tail.length>0) parts.push(new Uint8Array(tail));
+            resolve(new Blob(parts, { type:'audio/mpeg' }));
+          }
+        } catch(e) { reject(e); }
+      }
+      setTimeout(step, 0);
+    } catch(e) { reject(e); }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ENCODING MODAL UI
+// ═══════════════════════════════════════════════════════════════
+function setEncState(step, label, showBar) {
+  encStep.textContent  = `Step ${step} of 2`;
+  encLabel.textContent = label;
+  encBarWrap.style.display = showBar ? 'block' : 'none';
+  encBar.style.width = '0%'; encPct.textContent = '';
+  encModal.classList.add('on');
+}
+function hideEnc() { encModal.classList.remove('on'); }
+
+// ═══════════════════════════════════════════════════════════════
+//  SIZE ESTIMATE
+// ═══════════════════════════════════════════════════════════════
+function updateSizeEst(minutes) {
+  if (!minutes || buffer.length===0) { sizeEst.textContent='—'; sizeWarn.classList.remove('on'); return; }
+  const sec   = Math.min(minutes*60, buffer.length*SLICE_MS/1000);
+  const bytes = selFormat==='mp3'
+    ? sec * selBitrate*1000/8
+    : sec * 48000*2*2;        // 16-bit stereo 48 kHz
+  sizeEst.textContent = fmtBytes(bytes);
+  sizeWarn.classList.toggle('on', selFormat==='wav' && bytes>150e6);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER CLIPS
+// ═══════════════════════════════════════════════════════════════
+function renderClips() {
+  clipCnt.textContent = clips.length;
+  if (!clips.length) {
+    clipsList.innerHTML = `
+      <div class="empty-state">
+        <span class="ei">🎙️</span>
+        Start recording, choose MP3 or WAV, then hit a preset.<br>
+        The recording keeps running while you export!
+      </div>`; return;
+  }
+  clipsList.innerHTML = '';
+  clips.forEach(c => {
+    const el = document.createElement('div'); el.className = 'clip-card';
+    const icon    = c.ext==='mp3'?'🎵':'🔊';
+    const badgeCls = c.ext==='mp3'?'badge-mp3':'badge-wav';
+    el.innerHTML = `
+      <div class="clip-top">
+        <div class="clip-name">${icon} ${c.name}</div>
+        <div class="clip-right">
+          <div class="clip-dur">${fmtSec(c.actSec)}</div>
+          <div class="clip-meta">
+            <span class="badge-fmt ${badgeCls}">${c.ext.toUpperCase()}</span>
+            &nbsp;${c.fmtLbl.split('·')[1]?.trim()||''} · ${fmtBytes(c.size)}<br>${c.savedAt}
+          </div>
+        </div>
+      </div>
+      <audio controls src="${c.url}"></audio>
+      <div class="clip-actions">
+        <button class="act-btn act-dl"  data-id="${c.id}">⬇ Download .${c.ext}</button>
+        <button class="act-btn act-del" data-id="${c.id}">🗑 Delete</button>
+      </div>`;
+    clipsList.appendChild(el);
+  });
+}
+
+clipsList.addEventListener('click', e => {
+  const id   = +e.target.dataset.id; if (!id) return;
+  const clip = clips.find(c=>c.id===id); if (!clip) return;
+  if (e.target.classList.contains('act-dl'))
+    Object.assign(document.createElement('a'),
+      {href:clip.url, download:`loop-clip-${clip.id}.${clip.ext}`}).click();
+  if (e.target.classList.contains('act-del')) {
+    URL.revokeObjectURL(clip.url); clips = clips.filter(c=>c.id!==id); renderClips();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════════
+function fmtSec(s) {
+  s = Math.round(s);
+  const h   = Math.floor(s/3600);
+  const m   = String(Math.floor((s%3600)/60)).padStart(2,'0');
+  const sec = String(s%60).padStart(2,'0');
+  return h?`${h}:${m}:${sec}`:`${m}:${sec}`;
+}
+function fmtHMS(s) {
+  s=Math.round(s);
+  return [Math.floor(s/3600),Math.floor((s%3600)/60),s%60].map(v=>String(v).padStart(2,'0')).join(':');
+}
+function fmtLabel(min) {
+  if(min>=60) return '1 hour';
+  if(Number.isInteger(min)) return `${min} min`;
+  return `${min.toFixed(1)} min`;
+}
+function fmtBytes(b) {
+  if(b<1024)      return b+' B';
+  if(b<1048576)   return (b/1024).toFixed(1)+' KB';
+  if(b<1073741824) return (b/1048576).toFixed(1)+' MB';
+  return (b/1073741824).toFixed(2)+' GB';
+}
+function pause(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+function updateStats() {
+  const bs=buffer.length*SLICE_MS/1000;
+  statBuf.textContent  =fmtSec(bs); statTotal.textContent=fmtHMS(elapsedSec);
+  availTxt.textContent =bs>0?fmtSec(bs):'—';
+  if(bs>0){ statBuf.classList.remove('dim'); statTotal.classList.remove('dim'); }
+}
+function updateSaveBtns() {
+  const has=buffer.length>0;
+  presets.forEach(b=>b.disabled=!has); btnCustom.disabled=!has;
+}
+function setStatus(state,txt){ dotEl.className='dot '+state; statusEl.textContent=txt; }
+function showErr(msg){ errBox.textContent=msg; errBox.style.display='block'; }
+function hideErr(){ errBox.style.display='none'; }
+
+// ── Canvas helpers ─────────────────────────────────────────────
+function roundedBar(ctx,x,y,w,h,r){
+  if(h<=0||w<=0) return; r=Math.min(r,w/2,h/2);
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h); ctx.lineTo(x,y+h); ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+function _rr(ctx,x,y,w,h,r){
+  if(typeof ctx.roundRect==='function'){ ctx.roundRect(x,y,w,h,r); return; }
+  r=Math.min(r,w/2,h/2);
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r); ctx.closePath();
+}
+function rrFill(ctx,x,y,w,h,r){ if(w<=0||h<=0) return; ctx.beginPath();_rr(ctx,x,y,w,h,r);ctx.fill(); }
+function rrStroke(ctx,x,y,w,h,r){ ctx.beginPath();_rr(ctx,x,y,w,h,r);ctx.stroke(); }
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENT WIRING
+// ═══════════════════════════════════════════════════════════════
+btnStart.addEventListener('click', startRec);
+btnStop .addEventListener('click', stopRec);
+
+// Format tabs
+fmtTabs.forEach(tab => tab.addEventListener('click', () => {
+  selFormat = tab.dataset.fmt;
+  fmtTabs.forEach(t=>t.classList.toggle('active',t===tab));
+  qualGroup.style.display = selFormat==='mp3'?'flex':'none';
+  updateSizeEst(parseFloat(customInp.value)||hlMin||0);
+}));
+
+// Quality buttons
+qBtns.forEach(btn => btn.addEventListener('click', () => {
+  selBitrate = parseInt(btn.dataset.br);
+  qBtns.forEach(b=>b.classList.toggle('active',b===btn));
+  updateSizeEst(parseFloat(customInp.value)||hlMin||0);
+}));
+
+// Preset hover + click
+presets.forEach(btn => {
+  const min = parseFloat(btn.dataset.min);
+  btn.addEventListener('mouseenter', ()=>{ hlMin=min; drawTimeline(hlMin); updateSizeEst(min); });
+  btn.addEventListener('mouseleave', ()=>{ hlMin=0;   drawTimeline(0);     updateSizeEst(parseFloat(customInp.value)||0); });
+  btn.addEventListener('click',      ()=> saveMin(min, btn));
+  // ── ADD THESE TWO LINES ──
+  btn.addEventListener('touchstart', ()=>{ hlMin=min; drawTimeline(hlMin); updateSizeEst(min); }, {passive:true});
+  btn.addEventListener('touchend',   ()=>{ setTimeout(()=>{ hlMin=0; drawTimeline(0); updateSizeEst(0); }, 500); }, {passive:true});
+});
+
+// Custom input
+customInp.addEventListener('input', () => {
+  const v = parseFloat(customInp.value);
+  hlMin = (v>0&&v<=MAX_MIN)?v:0;
+  drawTimeline(hlMin); updateSizeEst(hlMin);
+});
+customInp.addEventListener('blur', ()=>{ hlMin=0; drawTimeline(0); });
+
+btnCustom.addEventListener('click', () => {
+  const v = parseFloat(customInp.value);
+  if (isNaN(v)||v<=0)   { showErr('Enter a valid duration, e.g. 2.5 for 2½ minutes.'); return; }
+  if (v>MAX_MIN)         { showErr(`Maximum is ${MAX_MIN} minutes.`); return; }
+  saveMin(v); customInp.value=''; hlMin=0; drawTimeline(0); updateSizeEst(0);
+});
+
+btnClearAll.addEventListener('click', () => {
+  if (!clips.length) return;
+  if (!confirm('Delete all saved clips?')) return;
+  clips.forEach(c=>URL.revokeObjectURL(c.url)); clips=[]; renderClips();
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════
+drawIdleWave();
+drawTimeline();
+
+if (!navigator.mediaDevices?.getUserMedia) {
+  showErr('Audio recording not supported — please use Chrome, Firefox, or Edge.');
+  btnStart.disabled = true;
+}
+window.addEventListener('load', () => {
+  if (!window.lamejs) {
+    fmtTabs.forEach(t=>{ if(t.dataset.fmt==='mp3') t.disabled=true; });
+    selFormat='wav';
+    fmtTabs.forEach(t=>t.classList.toggle('active',t.dataset.fmt==='wav'));
+    qualGroup.style.display='none';
+    showErr('MP3 encoder failed to load (check network). WAV format selected automatically.');
+  }
+});
+</script>
+<!-- ADD just before </body> -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () =>
+      navigator.serviceWorker.register('./sw.js')
+        .then(r  => console.log('SW ready:', r.scope))
+        .catch(e => console.warn('SW error:', e))
+    );
+  }
+</script>
+
+</body>
+</html>

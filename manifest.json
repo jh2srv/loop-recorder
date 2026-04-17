@@ -1,0 +1,19 @@
+{
+  "name": "Loop Recorder — MP3 / WAV",
+  "short_name": "LoopRec",
+  "description": "1-hour rolling buffer audio recorder",
+  "start_url": "./rec.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07071a",
+  "theme_color": "#07071a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
