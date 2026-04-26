@@ -337,6 +337,20 @@ body{
   .fmt-row{gap:8px}
   .quality-group{margin-left:0;width:100%}
 }
+/* ── Background recording indicator ── */
+.bg-rec-bar{
+  display:none;
+  background:linear-gradient(135deg,rgba(5,150,105,.12),rgba(4,120,87,.08));
+  border:1px solid rgba(5,150,105,.28);border-radius:14px;
+  padding:12px 16px;align-items:center;gap:12px;margin-top:14px;
+}
+.bg-rec-bar.on{display:flex}
+.dot-grn{
+  width:9px;height:9px;border-radius:50%;background:#22c55e;
+  flex-shrink:0;animation:blink 2s ease-in-out infinite;
+}
+.bg-rec-bar span{font-size:.76rem;color:#6ee7b7;line-height:1.6}
+.bg-rec-bar strong{color:#34d399}
 </style>
 </head>
 <body>
@@ -378,6 +392,14 @@ body{
     <div class="controls">
       <button class="btn btn-start" id="btnStart">▶ Start Recording</button>
       <button class="btn btn-stop"  id="btnStop" disabled>⏹ Stop</button>
+    </div>
+    <!-- ADD right after </div><!-- .controls --> -->
+    <div class="bg-rec-bar" id="bgRecBar">
+      <div class="dot-grn"></div>
+      <span>
+        <strong>Screen-off recording is active.</strong><br>
+        You can lock the screen — check the notification to stop recording.
+      </span>
     </div>
   </div>
 
@@ -679,16 +701,22 @@ async function startRec() {
   analyser  = audioCtx.createAnalyser(); analyser.fftSize = 512;
   src.connect(analyser);
 
+  // buffer = []; initBlob = null; totalChunks = 0; elapsedSec = 0;
   buffer = []; initBlob = null; totalChunks = 0; elapsedSec = 0;
+  recStartTime = Date.now();
   isRecording = true;
 
   const opts = mime ? { mimeType: mime } : {};
   mediaRec = new MediaRecorder(micStream, opts);
   mime     = mediaRec.mimeType;
   mediaRec.ondataavailable = onChunk;
+  // mediaRec.start(SLICE_MS);
   mediaRec.start(SLICE_MS);
+  startKeepAlive();
 
-  ticker = setInterval(()=>{ elapsedSec++; updateStats(); }, 1000);
+
+  // ticker = setInterval(()=>{ elapsedSec++; updateStats(); }, 1000);
+  ticker = setInterval(()=>{ elapsedSec = Math.round((Date.now()-recStartTime)/1000); updateStats(); }, 1000);
   cancelAnimationFrame(rafIdle);
   drawLiveWave();
   setStatus('rec','Recording  ·  rolling buffer active');
@@ -711,7 +739,10 @@ function stopRec() {
   if (!isRecording) return;
   isRecording = false;
   mediaRec.stop(); micStream.getTracks().forEach(t=>t.stop());
+  // clearInterval(ticker);
   clearInterval(ticker);
+  recStartTime = null;
+  stopKeepAlive();
   cancelAnimationFrame(rafLive); rafLive = null;
   if (audioCtx) { audioCtx.close(); audioCtx = null; }
   const bufSec = buffer.length * SLICE_MS/1000;
@@ -1084,8 +1115,94 @@ btnClearAll.addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+//  SCREEN-OFF KEEPALIVE
+// ═══════════════════════════════════════════════════════════════
+let keepAliveAudio  = null;
+let keepAliveSrcURL = null;
+let recStartTime    = null;
+
+/**
+ * Build a loopable 1-second WAV containing a 1 Hz sine at half amplitude.
+ * 1 Hz is below every phone speaker's frequency response → completely silent
+ * in reality, but Chrome/Android cannot classify it as "empty" audio.
+ */
+function buildKeepAliveWAV() {
+  const SR = 22050, numS = SR;              // 1 second, mono
+  const dataLen = numS * 2;                 // 16-bit PCM
+  const buf = new ArrayBuffer(44 + dataLen);
+  const v   = new DataView(buf);
+  const ws  = (o, s) => [...s].forEach((c,i) => v.setUint8(o+i, c.charCodeAt(0)));
+
+  ws(0,'RIFF'); v.setUint32(4, 36+dataLen, true);
+  ws(8,'WAVE'); ws(12,'fmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,SR,true); v.setUint32(28,SR*2,true);
+  v.setUint16(32,2,true);  v.setUint16(34,16,true);
+  ws(36,'data'); v.setUint32(40,dataLen,true);
+
+  // 1 Hz sine — inaudible through any phone speaker (below 20 Hz response)
+  for (let i = 0; i < numS; i++) {
+    v.setInt16(44 + i*2,
+      Math.round(Math.sin(2 * Math.PI * i / SR) * 16383), // half full scale
+      true);
+  }
+  return URL.createObjectURL(new Blob([buf], {type:'audio/wav'}));
+}
+
+function startKeepAlive() {
+  // ── Layer 1: audio loop — prevents tab freeze ──────────────────
+  if (!keepAliveSrcURL) keepAliveSrcURL = buildKeepAliveWAV();
+  if (!keepAliveAudio)  keepAliveAudio  = new Audio(keepAliveSrcURL);
+  keepAliveAudio.loop = true;
+  keepAliveAudio.play().catch(() => {});
+
+  // ── Layer 2: MediaSession — lock-screen notification ───────────
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title : '🔄 Loop Recorder — Recording',
+      artist: 'Rolling buffer active — see app to stop',
+    });
+    navigator.mediaSession.playbackState = 'playing';
+    // Stop button in notification works
+    navigator.mediaSession.setActionHandler('stop',  () => stopRec());
+    // Block accidental pause from headset buttons / notification
+    navigator.mediaSession.setActionHandler('pause', () => {});
+    navigator.mediaSession.setActionHandler('play',  () => {});
+  }
+
+  // ── Layer 3: indicator UI ──────────────────────────────────────
+  document.getElementById('bgRecBar').classList.add('on');
+}
+
+function stopKeepAlive() {
+  if (keepAliveAudio) { keepAliveAudio.pause(); }
+
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.playbackState = 'none';
+    navigator.mediaSession.metadata = null;
+    ['stop','pause','play'].forEach(a => {
+      try { navigator.mediaSession.setActionHandler(a, null); } catch(_) {}
+    });
+  }
+
+  document.getElementById('bgRecBar').classList.remove('on');
+}
+
+// Resume AudioContext for the visualiser when screen comes back on
+document.addEventListener('visibilitychange', () => {
+  if (!isRecording) return;
+  if (!document.hidden) {
+    // Screen back on — resume visualiser AudioContext
+    if (audioCtx?.state === 'suspended') audioCtx.resume();
+    // Re-assert keepalive audio in case OS paused it
+    if (keepAliveAudio?.paused) keepAliveAudio.play().catch(() => {});
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 //  BOOT
 // ═══════════════════════════════════════════════════════════════
+
 drawIdleWave();
 drawTimeline();
 
